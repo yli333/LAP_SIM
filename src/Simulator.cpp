@@ -18,9 +18,11 @@ using namespace std;
 
 
 
+int Global_SYRK( double **& A, double **& B, double **& C);
 int Global_Gemm( double **& A, double **& B, double **& C);
 void print_matrix(int rows, int columns, double ** matrix_A);
 void GEMM_Simulation(LAPU * Accelerator);
+void SYRK_Simulation(LAPU * Accelerator);
 void dump_matrix_file(int rows, int columns, double ** matrix_A, ofstream& A_file, char type, int precision);
 void Read_Matrix(ifstream& input, double **& matrix);
 void make_test_matrix(int rows, int columns, double **& test_matrix, int preset, char type);
@@ -37,6 +39,7 @@ int Mem_Size_A;
 int Mem_Size_B;
 int Mem_Size_B1;
 int Mem_Size_B2;
+int Rows_A_SYRK;
 
 
 int Rows_A, Cols_A;
@@ -151,7 +154,8 @@ int main(int argc, char* argv[] ) {
       Read_Matrix(C_input_orig, matmul_example_C_orig);
 
       //Triger Simulation
-	    GEMM_Simulation(Accelerator);
+	    //GEMM_Simulation(Accelerator);
+      SYRK_Simulation(Accelerator);
 
       //Generate Golden reference
       for(int i = 0; i<Rows_A; i++)
@@ -165,10 +169,11 @@ int main(int argc, char* argv[] ) {
     dump_matrix_file(Rows_A, Panel_Size, matmul_example_C_orig, C_golden_file, 'C',4);
 
   
-
+  /* Temp comment out
   cout<<"Executing command DIFF between ..."<<endl;
   int i=system (("diff "+C_out_name+" "+C_golden_name).c_str());
   cout<<"The value Diff result was:"<<i<<endl;
+  */
     
 	return 0;
 }
@@ -223,18 +228,49 @@ void dump_matrix_file(int rows, int columns, double ** matrix_A, ofstream& A_fil
 
 
 
+int Global_SYRK( double **& A, double **& B, double **& C){
 
+  int Global_index=0;
+
+  Accelerator->Assign_input_Matrix(A,B,C);
+
+
+
+  Rows_A_SYRK = 16;
+  cout<<"Start mem initilization"<<endl;
+  Accelerator->Initialize_Mem_New_RowMaj(A, Rows_A_SYRK, Kernel_Size, 0, 'A');
+  cout<<"Start simulation"<<endl; 
+  Accelerator->SYRK_Kernel(0, Rows_A_SYRK);
+  
+  return Accelerator->Return_Cycle_Count();
+}
+
+
+
+
+
+void SYRK_Simulation(LAPU * Accelerator){
+
+  int x;
+
+  x=Global_SYRK(matmul_example_A,matmul_example_B,matmul_example_C);
+
+  dump_matrix_file(Rows_A, Panel_Size, matmul_example_C, C_out_file, 'C',4);
+
+  cout<<"end of matmul"<<endl;
+  cout<<"Cycles="<<x <<endl;
+
+}
 
 
 int Global_Gemm( double **& A, double **& B, double **& C){
 
 	int Global_index=0;
-//	int Row_Block_index=0;
-//	int Column_Block_index=0;
 
 	Accelerator->Assign_input_Matrix(A,B,C);
-	Accelerator->Matmul_Kernel(0);
+  Accelerator->Matmul_Kernel(0);
 
+  
 	return Accelerator->Return_Cycle_Count();
 }
 

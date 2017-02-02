@@ -27,7 +27,8 @@ public:
 	
   int Initialize_Register_File (int row, int column, double ** A, int row_number, int column_number, int offset);
 
-  int Initialize_Register_File_New (int row, int column, double ** A, int row_number, int column_number, int offset, char matr);
+  int Initialize_Register_File_New_RowMaj (int row, int column, double ** A, int row_number, int column_number, int offset, char matr);
+  int Initialize_Register_File_New_ColMaj (int row, int column, double ** A, int row_number, int column_number, int offset, char matr);
 		//TODO update so it can append new matrices to the register file
 	int Flush_Register_File(double **& B, int row_number, int column_number, int offset);
 	int Flush_Register_File_New(double **& B, int row_number, int column_number, int offset, char matr);

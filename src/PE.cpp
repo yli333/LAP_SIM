@@ -22,6 +22,7 @@ PE::PE(int row, int col,  double * row_write_bus, double * row_read_bus, double 
 
   Address_A_New = 0;
   Address_WA_New = 0;
+  Address_A_Tmp = 0;
 
 
   Address_B_New = 0;
@@ -97,9 +98,16 @@ int PE::Intialize_Local_Mem( double ** Input_matrix, int row_number, int column_
 
 }
 
-int PE::Initialize_Local_Mem_New( double ** Input_matrix, int row_number, int column_number,int offset, char matr){
+int PE::Initialize_Local_Mem_New_RowMaj( double ** Input_matrix, int row_number, int column_number,int offset, char matr){
 
-	Local_Mem.Initialize_Register_File_New(My_Row, My_Column, Input_matrix,row_number, column_number, offset, matr);
+	Local_Mem.Initialize_Register_File_New_RowMaj(My_Row, My_Column, Input_matrix,row_number, column_number, offset, matr);
+	return 0;
+
+}
+
+int PE::Initialize_Local_Mem_New_ColMaj( double ** Input_matrix, int row_number, int column_number,int offset, char matr){
+
+	Local_Mem.Initialize_Register_File_New_ColMaj(My_Row, My_Column, Input_matrix,row_number, column_number, offset, matr);
 	return 0;
 
 }
@@ -207,12 +215,10 @@ void PE::Dump_PE_Mem (int amount){
 
 	cout<<"Dumping PE("<<My_Row<<','<<My_Column<<")"<<endl;
 	for (int i=0; i<amount; i++)
-		cout<<Local_Mem.Reg_Read(i)<<endl;
+		cout<<Local_Mem.Reg_Read_New(i, toA)<<endl;
 	cout<<"xxxxxxxxxxxxxx"<<endl;
 
 }
-
-
 
 
 // Load A Row Major  |||||||||
@@ -784,4 +790,270 @@ int PE::Execute_Matmul (int Global_index, int Bpj_Counter, int Mc, int Kc, int A
 
 }
 
+/*** SYRK KERNEL BEGIN ***/
 
+int PE::Execute_SYRK (int Global_index, int Rows_A_SYRK, int Kc, int Mc, int Row_Counter, int SYRK_Counter, int SYRK_Flag, int SYRK_Current_State, int Latency_Counter){
+
+	switch (SYRK_Current_State){
+		case 0:	//Fetch_BC0
+			if (My_Row == (Kc-1)){
+				if (Mc == 0){
+					Scratch_Regs_Next[1]=*Read_My_Col_Bus;
+				}
+				else{
+					Scratch_Regs_Next[3]=*Read_My_Col_Bus;
+				}
+			}
+			if ((Kc == LAPU_Size-1)&&(Mc == 1)){
+				Address_WB_New = 0;
+				Write_My_Row_Reg_Next = Local_Mem.Reg_Read_New(Address_A_New, toA);
+				Address_A_New = Recurs_Gen_A(Address_A_New);
+			}
+			else if ((Kc == LAPU_Size)&&(Mc == 1)){
+				if (My_Column == 0){
+					*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+				}
+			}
+
+		break;
+
+		case 1: //BC2
+			//Broadcast 1st column (on row buses)
+			if (My_Column == 1){
+				*Write_My_Row_Bus=Write_My_Row_Reg_Curr;
+			}
+			//Store column broadcast from before for MAC
+			Scratch_Regs_Next[0] = (*Read_My_Row_Bus);
+			Address_WB_New = 0;
+			//Broadcast diagonal PEs (on column buses)
+			if (My_Column == My_Row){
+				*Write_My_Col_Bus = (*Read_My_Row_Bus);
+			}
+			ALU.Load_Accumulator(Scratch_Regs_Curr[1]);
+		break;
+		case 2:	//MAC_BC
+			if (SYRK_Flag == 0){
+				if (Kc == Kernel_Size){
+					if (My_Column == 1){
+						*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+					}
+					Address_WB_New = 0;
+					ALU.Load_Accumulator(Scratch_Regs_Curr[1]);
+				}
+				if ((Kc == FMA_Latency-3)&&(SYRK_Counter != 0)){
+					Scratch_Regs_Next[1] = Scratch_Regs_Next[2];
+				}
+				//Read values from memA for all PEs and prepare to broadcast (on row buses, need to do this every 4 cycles)
+				if ((Kc+2)%LAPU_Size==LAPU_Size-1){
+					Write_My_Row_Reg_Next = Local_Mem.Reg_Read_New(Address_A_New, toA);
+					Address_A_New = Recurs_Gen_A(Address_A_New);
+				}
+				//Broadcast column (on row buses)
+				if ((My_Column == (Kc+2)%LAPU_Size)&&(Kc != Kernel_Size)&&(Kc != Kernel_Size-1)){
+					*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+				}
+				//Store column broadcast from before for MAC
+				//Also store in memB to use in matmul later
+				if (Kc != Kernel_Size){
+					Local_Mem.Reg_Write_New(Address_WB_New, (*Read_My_Col_Bus), toB);
+					Address_WB_New = Recurs_Gen_B(Address_WB_New);
+				}
+				//Broadcast diagonal PEs (on column buses)
+				if (My_Column == My_Row){
+					*Write_My_Col_Bus = (*Read_My_Row_Bus);
+				}
+				Scratch_Regs_Next[0] = (*Read_My_Row_Bus);
+				//Perform MAC
+				if (Kc == 0){
+					Scratch_Regs_Next[2] = ALU.Execute_MAC(Scratch_Regs_Curr[0], (*Read_My_Col_Bus));
+				}
+				else if (Kc == Kernel_Size-1){
+					//Preparing for matmul next cycle
+					Address_A_Tmp = Address_A_New;
+					Address_B_New = 0;
+					Scratch_Regs_Next[0] = Local_Mem.Reg_Read_New(Address_B_New, toB);
+					Address_B_New = Recurs_Gen_B(Address_B_New);
+					Scratch_Regs_Next[2] = ALU.Execute_MAC(Scratch_Regs_Curr[0], (*Read_My_Col_Bus));
+					ALU.Load_Accumulator(Scratch_Regs_Curr[3]);
+					if (My_Column == 0){
+						*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+					}
+
+				}
+				else if (Kc == Kernel_Size){
+					Scratch_Regs_Next[2] = ALU.Execute_MAC(0, 0);
+				}
+				else{
+					Scratch_Regs_Next[2] = ALU.Execute_MAC(Scratch_Regs_Curr[0], (*Read_My_Col_Bus));
+				}
+			}
+			else{
+				//Case of first GEMM block after SYRK inner kernel
+				if (Row_Counter == SYRK_Counter){
+					if (Kc == Kernel_Size){
+						if (My_Column == 1){
+							*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+							cout<<Write_My_Row_Reg_Curr<<endl;
+						}
+					}
+					if ((Kc+2)%LAPU_Size==LAPU_Size-1){
+						Write_My_Row_Reg_Next = Local_Mem.Reg_Read_New(Address_A_New, toA);
+						Address_A_New = Recurs_Gen_A(Address_A_New);
+					}
+					Scratch_Regs_Next[2]=ALU.Execute_MAC( Scratch_Regs_Curr[0], (*Read_My_Row_Bus));
+					if (Kc == Kernel_Size - 1){
+						Address_B_New = 0;
+						if (My_Column == 0){
+							*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+						}
+						ALU.Load_Accumulator(Scratch_Regs_Curr[1]);
+					}
+					Scratch_Regs_Next[0] = Local_Mem.Reg_Read_New(Address_B_New, toB);
+					Address_B_New = Recurs_Gen_B(Address_B_New);
+					if (Kc == FMA_Latency-3){
+						Write_My_Col_Reg_Next=Scratch_Regs_Next[2];
+						Cout_Counter = -1;
+					}
+					if (Kc == FMA_Latency+10){
+						Cin_Counter = -2;
+					}
+					
+					if ((Kc == FMA_Latency+3)&&(SYRK_Counter != 1)){
+						Write_My_Col_Reg_Next=Scratch_Regs_Curr[1];
+						Cout_Counter = -1;
+					}
+					
+					if ((My_Column == (Kc+2)%LAPU_Size)&&(Kc != Kernel_Size)&&(Kc != Kernel_Size - 1)){
+						*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+					}
+					if (Row_Counter == (Rows_A_SYRK/LAPU_Size)-1){
+						if (Kc == Kernel_Size - 2){
+							Address_WB_New = 0;
+							Address_A_New = Address_A_Tmp-1;
+							Write_My_Row_Reg_Next = Local_Mem.Reg_Read_New(Address_A_New, toA);
+							Address_A_New = Recurs_Gen_A(Address_A_New);
+						}
+						if (Kc == Kernel_Size - 1){
+							if (My_Column == 0){
+								*Write_My_Row_Bus=Write_My_Row_Reg_Curr;
+							}
+						}
+					}
+				}
+				else{
+					if (Kc == FMA_Latency-3){
+						Write_My_Col_Reg_Next=Scratch_Regs_Next[2];
+						Cout_Counter = -1;
+					}
+					//Read values from memA for all PEs and prepare to broadcast (on row buses, need to do this every 4 cycles)
+					if ((Kc+2)%LAPU_Size==LAPU_Size-1){
+						Write_My_Row_Reg_Next = Local_Mem.Reg_Read_New(Address_A_New, toA);
+						Address_A_New = Recurs_Gen_A(Address_A_New);
+					}
+					//Broadcast column (on row buses)
+					if ((My_Column == (Kc+2)%LAPU_Size)&&(Kc != Kernel_Size)&&(Kc != Kernel_Size - 1)){
+						*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+					}
+					//Read values from memB
+					if (Kc == Kernel_Size){
+						if (My_Column == 1){
+							*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+						}
+					}
+					Scratch_Regs_Next[2] = ALU.Execute_MAC(Scratch_Regs_Curr[0], (*Read_My_Row_Bus));
+					if (Kc == Kernel_Size - 1){
+						Address_B_New = 0;
+						if (My_Column == 0){
+							*Write_My_Row_Bus = Write_My_Row_Reg_Curr;
+						}
+						ALU.Load_Accumulator(Scratch_Regs_Curr[1]);
+					}
+					Scratch_Regs_Next[0] = Local_Mem.Reg_Read_New(Address_B_New, toB);
+					Address_B_New = Recurs_Gen_B(Address_B_New);
+					if (Kc == FMA_Latency+10){
+						Cin_Counter = -2;
+					}
+					if (Row_Counter == (Rows_A_SYRK/LAPU_Size)-1){
+						if (Kc == Kernel_Size - 2){
+							Address_WB_New = 0;
+							Address_A_New = Address_A_Tmp-1;
+							Write_My_Row_Reg_Next = Local_Mem.Reg_Read_New(Address_A_New, toA);
+							Address_A_New = Recurs_Gen_A(Address_A_New);
+						}
+						if (Kc == Kernel_Size - 1){
+							if (My_Column == 0){
+								*Write_My_Row_Bus=Write_My_Row_Reg_Curr;
+							}
+						}
+						if (Kc == FMA_Latency+18){
+							Cin_Counter = -2;
+						}
+					}
+      			}
+      			//Fetching Cin
+				if (Cin_Counter < LAPU_Size){
+					if (Cin_Counter>=0){
+						if (My_Row == Cin_Counter){
+							if (Row_Counter == (Rows_A_SYRK/LAPU_Size)-1){
+								if ((Kc <= FMA_Latency+18)&&(Kc >= FMA_Latency+10)){
+									Scratch_Regs_Next[1]=*Read_My_Col_Bus;
+								}
+								else{
+									Scratch_Regs_Next[3]=*Read_My_Col_Bus;
+								}
+							}
+							else{
+								Scratch_Regs_Next[1]=*Read_My_Col_Bus;
+							}
+						}
+					}
+					Cin_Counter++;
+				}
+
+				//Writing Cout
+				if (Cout_Counter<LAPU_Size){
+					if(Cout_Counter>=0){
+						if (My_Row==Cout_Counter){
+	  						*Write_My_Col_Bus=Write_My_Col_Reg_Curr; //drive the bus
+						}
+          			}
+					Cout_Counter++;
+      			}
+			}
+		break;
+
+		case 3:	//Mac_Flush
+			if (Latency_Counter<(FMA_Latency-3)){
+				Scratch_Regs_Next[2] = ALU.Execute_MAC(Scratch_Regs_Curr[0], (*Read_My_Row_Bus));
+			}
+			//Write final 4x4 Cout to memB
+			else{
+				Scratch_Regs_Next[2] = ALU.Execute_MAC(Scratch_Regs_Curr[0], (*Read_My_Row_Bus));
+				Write_My_Col_Reg_Next=Scratch_Regs_Next[2];
+          		Cout_Counter = -1;// set bus delay
+			}
+		break;
+
+		case 4:  //SYRK_End
+		if (Cout_Counter<2*LAPU_Size){
+			if(Cout_Counter>=0){
+				if (My_Row==Cout_Counter){
+	  				*Write_My_Col_Bus=Write_My_Col_Reg_Curr; //drive the bus
+				}
+				if (Cout_Counter == LAPU_Size-1){
+					Write_My_Col_Reg_Next = Scratch_Regs_Curr[1];
+				}
+				if (Cout_Counter >= LAPU_Size){
+					if (My_Row == Cout_Counter-LAPU_Size){
+						*Write_My_Col_Bus = Write_My_Col_Reg_Curr;
+					}
+				}
+         	}
+			Cout_Counter++;
+      	}
+		break;
+	}
+	return 0;
+}
+
+/*** SYRK KERNEL END ***/

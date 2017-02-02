@@ -11,27 +11,27 @@
 using namespace std;
 IO::IO()
 {
-	// TODO Auto-generated constructor stub
-	data_transfer_total=0;
+  // TODO Auto-generated constructor stub
+  data_transfer_total=0;
 }
 
 IO::~IO()
 {
-	// TODO Auto-generated destructor stub
+  // TODO Auto-generated destructor stub
 }
 
 
 IO::IO(double *& Row_Buses_Write,double *& Row_Buses_Read,double *& Column_Buses_Write,double *& Column_Buses_Read){
 
 
-	Read_Col_Buses= Column_Buses_Read;
-	Read_Row_Buses= Row_Buses_Read;
-	Write_Col_Buses=Column_Buses_Write;
-	Write_Row_Buses=Row_Buses_Write;
+  Read_Col_Buses= Column_Buses_Read;
+  Read_Row_Buses= Row_Buses_Read;
+  Write_Col_Buses=Column_Buses_Write;
+  Write_Row_Buses=Row_Buses_Write;
 
-	Cin_Counter=0;
-	Cout_Counter=-2;
-	Bin_Counter=0;
+  Cin_Counter=0;
+  Cout_Counter=-2;
+  Bin_Counter=0;
   Ain_Counter = 0;
 
   last_x =0;
@@ -49,84 +49,187 @@ IO::IO(double *& Row_Buses_Write,double *& Row_Buses_Read,double *& Column_Buses
 
 int IO::Assign_input_Matrix( double **& matrix_A, double **& matrix_B, double **& matrix_C){
 
-	Matrix_A=matrix_A;
-	Matrix_B=matrix_B;
-	Matrix_C=matrix_C;
+  Matrix_A=matrix_A;
+  Matrix_B=matrix_B;
+  Matrix_C=matrix_C;
   return 0;
 
 }
 
+int IO::IO_Execute_SYRK (int Global_index, int Rows_A_SYRK, int Kc, int Mc, int Row_Counter, int Col_Counter, int SYRK_Counter, int SYRK_Flag, int SYRK_Current_State){
+  int i,j,k;
+
+  switch(SYRK_Current_State){
+    case 0:
+      for (i=0; i < LAPU_Size; i++){
+        Write_Col_Buses[i] = Matrix_C[Kc+Mc*LAPU_Size][i];
+      }
+    break;
+
+    case 1:
+    break;
+
+    case 2:
+      if (SYRK_Flag == 1){
+        if (Kc == FMA_Latency+10){
+          Cin_Counter = -1;
+          last_y = 0;
+        }
+        if (Kc == FMA_Latency+18){
+          Cin_Counter = -1;
+          last_y = 0;
+        }
+        if ((Kc == FMA_Latency+3)&&(SYRK_Counter != 1)){
+          Cout_Counter = -2;
+        }
+        if ((Kc+1 == FMA_Latency-1)&&Col_Counter!=0){
+          Cout_Counter = -2;
+          last_x = 0;
+        }
+        if ((Kc == FMA_Latency-3)&&(Row_Counter == SYRK_Counter)){
+          Cout_Counter = -2;
+          last_x = 0;
+        }
+        if ((Kc == FMA_Latency-2)&&(Row_Counter != SYRK_Counter)&&(SYRK_Counter != 0)){
+          Cout_Counter = -1;
+          last_x = 0;
+        }
+        if (Cin_Counter<LAPU_Size){
+          if (Cin_Counter>=0){
+            for (i = 0; i < LAPU_Size; i++){
+              if (Row_Counter == (Rows_A_SYRK/LAPU_Size)-1){
+                if (Kc <= FMA_Latency+18){
+                  Write_Col_Buses[i] = Matrix_C[last_y+(SYRK_Counter)*LAPU_Size][i+(SYRK_Counter)*LAPU_Size];
+                }
+                else{
+                  Write_Col_Buses[i] = Matrix_C[last_y+(SYRK_Counter+1)*LAPU_Size][i+(SYRK_Counter)*LAPU_Size];
+                }
+              }
+              else{
+                Write_Col_Buses[i] = Matrix_C[last_y+(SYRK_Counter+Col_Counter+1)*LAPU_Size][i+(SYRK_Counter-1)*LAPU_Size];
+              }
+            }
+            last_y++;
+          }
+          Cin_Counter++;
+        }
+        if (Cout_Counter<LAPU_Size){
+          if (Cout_Counter>=0){
+            for (i=0;i<LAPU_Size;i++){
+              if ((Row_Counter == SYRK_Counter)&&(SYRK_Counter !=0)){
+                if (Kc <= FMA_Latency + 3){
+                  Matrix_C[last_x+(SYRK_Counter-1)*LAPU_Size][i+(SYRK_Counter-1)*LAPU_Size] = Read_Col_Buses[i];
+                }
+                else{
+                  Matrix_C[last_x+((Rows_A_SYRK/LAPU_Size)-2)*LAPU_Size][i+(SYRK_Counter-2)*LAPU_Size] = Read_Col_Buses[i];
+                }
+              }
+              else{
+                Matrix_C[last_x+(SYRK_Counter+Col_Counter-1)*LAPU_Size][i+(SYRK_Counter-1)*LAPU_Size] = Read_Col_Buses[i];
+              }
+            }
+            last_x++;
+          } 
+          Cout_Counter++;
+        }
+      }
+    break;
+
+    case 3:
+      Cout_Counter = -2;
+      last_x = 0;
+    break;
+
+    case 4:
+      if (Cout_Counter<2*LAPU_Size){
+        if (Cout_Counter>=0){
+          for (i=0;i<LAPU_Size;i++){
+            if (last_x<=LAPU_Size-1){
+              Matrix_C[last_x+(SYRK_Counter)*LAPU_Size][i+(SYRK_Counter)*LAPU_Size] = Read_Col_Buses[i];
+            }
+            else{
+              Matrix_C[last_x-LAPU_Size+(SYRK_Counter)*LAPU_Size][i+(SYRK_Counter-1)*LAPU_Size] = Read_Col_Buses[i];
+            }
+          }
+          last_x++;
+        } 
+        Cout_Counter++;
+      }
+    break;
+  }
+  return 0;
+}
 
 int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int  Matmul_Current_State, int Latency_Counter_Curr){
 
-	int i,j,k;
+  int i,j,k;
 
 
 
-	switch( Matmul_Current_State){
+  switch( Matmul_Current_State){
 
-		case 0: //Init: fetch C in Regfile
-
-
-			for (i=0;i<LAPU_Size;i++) // write on all buses the rows in steps
-				Write_Col_Buses[i]=Matrix_C[Kc][i];
+    case 0: //Init: fetch C in Regfile
 
 
-		break;
+      for (i=0;i<LAPU_Size;i++) // write on all buses the rows in steps
+        Write_Col_Buses[i]=Matrix_C[Kc][i];
 
 
-		case 1: // Fetch B
-
-			for (i=0;i<LAPU_Size;i++)
-				Write_Col_Buses[i]=Matrix_B[Kc][i];
+    break;
 
 
-		break;
+    case 1: // Fetch B
 
-		case 2:
-
-			for (i=0;i<LAPU_Size;i++)
-				//Write_Col_Buses[i]=Matrix_A[Mc+Kc%LAPU_Size][(Kc/LAPU_Size)*LAPU_Size+i];
-				Write_Col_Buses[i]=Matrix_A[Mc][(Kc/LAPU_Size)*LAPU_Size+i];
-
-			//cout <<"on the bus"<<Matrix_A[Mc+Kc%LAPU_Size][(Kc/LAPU_Size)*LAPU_Size+i-1]<<endl;
-		break;
+      for (i=0;i<LAPU_Size;i++)
+        Write_Col_Buses[i]=Matrix_B[Kc][i];
 
 
-		case 3:
+    break;
 
-		break;
+    case 2:
 
-		case 4:
+      for (i=0;i<LAPU_Size;i++)
+        //Write_Col_Buses[i]=Matrix_A[Mc+Kc%LAPU_Size][(Kc/LAPU_Size)*LAPU_Size+i];
+        Write_Col_Buses[i]=Matrix_A[Mc][(Kc/LAPU_Size)*LAPU_Size+i];
 
-		break;
-		case 5:
-
-			/*if ((Kc>=0) && (Kc< (Kernel_Size/3))){
-				//reset all counters
-				Cin_Counter=0;
-				Cout_Counter=-2; // -2*(delay of bus);
-				Bin_Counter=0;
+      //cout <<"on the bus"<<Matrix_A[Mc+Kc%LAPU_Size][(Kc/LAPU_Size)*LAPU_Size+i-1]<<endl;
+    break;
 
 
-					// read Cin instantly (just now)
-					for (i=0;i<LAPU_Size;i++)
-						for (j=0;j<LAPU_Size;j++){
+    case 3:
 
-							Buffer_Cin[i][j]=Matrix_C[((Mc+LAPU_Size)%Kernel_Size)+i]
-													 [(N+ ((Mc+LAPU_Size)/Kernel_Size)*LAPU_Size)% Panel_Size+j]; //TODO;
+    break;
 
-					}
-				Done=0;
-			}*/
-		
+    case 4:
+
+    break;
+    case 5:
+
+      /*if ((Kc>=0) && (Kc< (Kernel_Size/3))){
+        //reset all counters
+        Cin_Counter=0;
+        Cout_Counter=-2; // -2*(delay of bus);
+        Bin_Counter=0;
+
+
+          // read Cin instantly (just now)
+          for (i=0;i<LAPU_Size;i++)
+            for (j=0;j<LAPU_Size;j++){
+
+              Buffer_Cin[i][j]=Matrix_C[((Mc+LAPU_Size)%Kernel_Size)+i]
+                           [(N+ ((Mc+LAPU_Size)/Kernel_Size)*LAPU_Size)% Panel_Size+j]; //TODO;
+
+          }
+        Done=0;
+      }*/
+    
       //Reset all counters here 
 
       if (Kc==0 || (Kc==1 && Mc==0 && N==0 && Ap==0)){
-				//reset all counters
-				Cin_Counter=0;
-				Cout_Counter=-2; // -2*(delay of bus);
-				Bin_Counter=0;
+        //reset all counters
+        Cin_Counter=0;
+        Cout_Counter=-2; // -2*(delay of bus);
+        Bin_Counter=0;
         Ain_Counter = 0;
 
         fetch_C = true;
@@ -139,9 +242,9 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
         //FcA is a counter of how many A we have fetched
 
 
-					// read Cin instantly (just now)
-					for (i=0;i<LAPU_Size;i++)
-						for (j=0;j<LAPU_Size;j++){
+          // read Cin instantly (just now)
+          for (i=0;i<LAPU_Size;i++)
+            for (j=0;j<LAPU_Size;j++){
               
 
               //This is the case where we are in the end finishing one panel of B
@@ -149,41 +252,41 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
             
                 //If we are not in the last kernel of A
                 if (Ap!= NumofKernel-1)
-							    Buffer_Cin[i][j]=Matrix_C[((Mc+LAPU_Size)%Kernel_Size)+i + (Ap+1)*Kernel_Size]
-													 [(N+ ((Mc+LAPU_Size)/Kernel_Size)*LAPU_Size)% Panel_Size+j]; //TODO;
+                  Buffer_Cin[i][j]=Matrix_C[((Mc+LAPU_Size)%Kernel_Size)+i + (Ap+1)*Kernel_Size]
+                           [(N+ ((Mc+LAPU_Size)/Kernel_Size)*LAPU_Size)% Panel_Size+j]; //TODO;
               
               }
 
               else{ //When we are in the last kernel of A 
 
-							  Buffer_Cin[i][j]=Matrix_C[((Mc+LAPU_Size)%Kernel_Size)+i + Ap*Kernel_Size]
-													 [(N+ ((Mc+LAPU_Size)/Kernel_Size)*LAPU_Size)% Panel_Size+j]; //TODO;
+                Buffer_Cin[i][j]=Matrix_C[((Mc+LAPU_Size)%Kernel_Size)+i + Ap*Kernel_Size]
+                           [(N+ ((Mc+LAPU_Size)/Kernel_Size)*LAPU_Size)% Panel_Size+j]; //TODO;
               }
 
-					}
+          }
 
-				
+        
          /* for (i=0;i<LAPU_Size; i++)
-						Write_Col_Buses[i]=Buffer_Cin[Cin_Counter][i];
+            Write_Col_Buses[i]=Buffer_Cin[Cin_Counter][i];
         
         Cin_Counter++;*/
 
-				Done=0;
-			}
+        Done=0;
+      }
 
-			if (fetch_C ){
+      if (fetch_C ){
 
 
         // Send C to the Col Buses
         // And simultaneously put A in the buffer to send next time
 
 
-				if (Done==0){
-					Done++;
-					// read A instantly in the beginning of the second period
-				  
+        if (Done==0){
+          Done++;
+          // read A instantly in the beginning of the second period
+          
           for (i=0;i<LAPU_Size;i++)
-						for (j=0;j<LAPU_Size;j++){
+            for (j=0;j<LAPU_Size;j++){
 
               if (N<Kernel_Size){
               
@@ -192,24 +295,24 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
               //And for every one N iteration, we fetch Kernel_Size 
               //That is why, then we only need to set N<Kernel_Size to fetch Kernel_Size*Kernel_Size A
 
-							Buffer_A[i][j]=Matrix_A[((Ap+1)%NumofKernel)*Kernel_Size + N + i][Mc+j]; //TODO;
+              Buffer_A[i][j]=Matrix_A[((Ap+1)%NumofKernel)*Kernel_Size + N + i][Mc+j]; //TODO;
               cout << "Buffer A is " << Buffer_A[i][j] << endl;
               //getchar();
               }
-						}
+            }
 
-				}
+        }
 
-				//Send the Cin on the buses cycle by cycle;
-				if (Cin_Counter< LAPU_Size){
+        //Send the Cin on the buses cycle by cycle;
+        if (Cin_Counter< LAPU_Size){
 
-					cout<<"Sending CIN "<<endl;
-					for (i=0;i<LAPU_Size; i++){
-						Write_Col_Buses[i]=Buffer_Cin[Cin_Counter][i];
-					  cout<<Write_Col_Buses[i]<<endl;
+          cout<<"Sending CIN "<<endl;
+          for (i=0;i<LAPU_Size; i++){
+            Write_Col_Buses[i]=Buffer_Cin[Cin_Counter][i];
+            cout<<Write_Col_Buses[i]<<endl;
           }
-					Cin_Counter++;
-				}
+          Cin_Counter++;
+        }
 
         if (Cin_Counter==LAPU_Size) {
           fetch_A = true;
@@ -218,12 +321,12 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
         }
       }
 
-			else if (fetch_A){      //fetching A
+      else if (fetch_A){      //fetching A
 
         //Send A to Col buses
 
         if (Ain_Counter<LAPU_Size && ((Kc%LAPU_Size)!=2)){
-					//cout <<"Cout_Counter"<<Cout_Counter<<endl;
+          //cout <<"Cout_Counter"<<Cout_Counter<<endl;
           //
           //FcA is a counter to keep track how many A have we sent for one kernel of A
           //This will be reset to 0 everytime we calculate new kernel of A
@@ -231,17 +334,17 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
           //Then that means we are good. We prefetched all the data for the next iteration
           //Updated : FcA is replaced by Aip_fetch_Counter
 
-				 if(Aip_fetch_counter!= (Kernel_Size*Kernel_Size)/(LAPU_Size * LAPU_Size)){
+         if(Aip_fetch_counter!= (Kernel_Size*Kernel_Size)/(LAPU_Size * LAPU_Size)){
           if (Ain_Counter>=0){
-					  for (i=0;i<LAPU_Size; i++){
-						  Write_Col_Buses[i]=Buffer_A[Ain_Counter][i];
+            for (i=0;i<LAPU_Size; i++){
+              Write_Col_Buses[i]=Buffer_A[Ain_Counter][i];
               cout <<"Ain from IO is"<< Write_Col_Buses[i] << endl;
             }
-					  Ain_Counter++;
+            Ain_Counter++;
             cout<<"fetch_A now "<<endl;
             cout<<"Aip_fill_Counter now is " << Aip_fetch_counter <<endl;
             //getchar();
-				  }
+          }
 
           else Aip_fetch_counter++; //increment FcA after all As have been saved in all PEs
          }
@@ -256,10 +359,10 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
          }
 
         }
-			}
+      }
 
 
-			else if(send_C) { // if in the third period
+      else if(send_C) { // if in the third period
 
         //Get Cout and simultaneously prepare B for the next time
 
@@ -269,8 +372,8 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
 
           //prefetch B
           
-					for (i=0;i<LAPU_Size;i++)
-						for (j=0;j<LAPU_Size;j++){
+          for (i=0;i<LAPU_Size;i++)
+            for (j=0;j<LAPU_Size;j++){
               Buffer_B[i][j]=Matrix_B[Mc+i][(N+LAPU_Size)% Panel_Size+j];
           } 
         }
@@ -359,15 +462,15 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
         }
 
 
-				if (Bin_Counter< LAPU_Size){
-					//cout << "GGGGGGGGGGGGGGG"<<endl;
+        if (Bin_Counter< LAPU_Size){
+          //cout << "GGGGGGGGGGGGGGG"<<endl;
 
-					cout<<"Sending B"<<endl;
-					for (i=0;i<LAPU_Size; i++)
-						Write_Col_Buses[i]=Buffer_B[Bin_Counter][i];
+          cout<<"Sending B"<<endl;
+          for (i=0;i<LAPU_Size; i++)
+            Write_Col_Buses[i]=Buffer_B[Bin_Counter][i];
 
-					Bin_Counter++;
-				}
+          Bin_Counter++;
+        }
 
         if (Bin_Counter ==LAPU_Size){
           fetch_C = false;
@@ -376,10 +479,10 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
           send_C = false;
         }
 
-			}
-		break;
+      }
+    break;
 
-		case 6: // Mac_Flush
+    case 6: // Mac_Flush
       
       //This is just waiting for PEs to send the last 16 elements (results)
       //The delay from PEs
@@ -396,8 +499,8 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
 
       if (Cout_Counter>=0){
 
-	  	  for (i=0;i<LAPU_Size;i++)
-		  		Matrix_C[last_x+ (NumofKernel-1)*Kernel_Size][last_y+i] = Read_Col_Buses[i];
+        for (i=0;i<LAPU_Size;i++)
+          Matrix_C[last_x+ (NumofKernel-1)*Kernel_Size][last_y+i] = Read_Col_Buses[i];
    
         cout<< "last_x " << last_x <<endl;
         cout<< "Ap and Kernelsize " << Ap  << Kernel_Size <<endl;
@@ -414,7 +517,7 @@ int IO::IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ap, int 
 
     
 
-	}
+  }
 
 
   return 0;

@@ -82,11 +82,21 @@ int LAPU::Initialize_Mem( double ** Input_matrix, int row_number, int column_num
 
 }
 
-int LAPU::Initialize_Mem_New( double ** Input_matrix, int row_number, int column_number, int offset, char matr){
+int LAPU::Initialize_Mem_New_RowMaj( double ** Input_matrix, int row_number, int column_number, int offset, char matr){
 
 	for (i=0;i<Size;i++)
 		for (j=0;j<Size;j++){
-			PE_Array[i][j].Initialize_Local_Mem_New(Input_matrix,row_number,column_number, offset, matr);
+			PE_Array[i][j].Initialize_Local_Mem_New_RowMaj(Input_matrix,row_number,column_number, offset, matr);
+
+		}
+	return 0;
+}
+
+int LAPU::Initialize_Mem_New_ColMaj( double ** Input_matrix, int row_number, int column_number, int offset, char matr){
+
+	for (i=0;i<Size;i++)
+		for (j=0;j<Size;j++){
+			PE_Array[i][j].Initialize_Local_Mem_New_ColMaj(Input_matrix,row_number,column_number, offset, matr);
 
 		}
 	return 0;
@@ -361,6 +371,8 @@ int LAPU::Cycle(){
 
 
   Matmul_Current_State=Matmul_Next_State;
+
+  SYRK_Current_State = SYRK_Next_State;
 
 	Cycles_Passed++;
 	return Cycles_Passed;
@@ -639,3 +651,188 @@ int LAPU::Matmul_Kernel(int Global_index){
 	    	}
 	    return 0;
     }
+
+
+/*** SYRK KERNEL DUMP STATE MACHINE BEGIN ***/
+
+int LAPU::Dump_SYRK_SMachine(){
+	cout<<"Kc"<<Kc_Counter_Curr<<endl;
+
+	switch(SYRK_Current_State){
+		case SYRK_Fetch_BC0:
+			cout<<"SYRK_Fetch_BC0"<<endl;
+		break;
+
+		case SYRK_BC2:
+			cout<<"SYRK_BC2"<<endl;
+		break;
+
+		case SYRK_MAC_BC:
+			cout<<"SYRK_MAC_BC"<<endl;
+		break;
+
+		case SYRK_MAC_Flush:
+			cout<<"SYRK_MAC_Flush"<<endl;
+		break;
+
+		case SYRK_End:
+			cout<<"SYRK_End"<<endl;
+		break;
+	}
+
+	cout<<"Latency_Count ="<<Latency_Counter_Curr<<endl;
+
+	switch(SYRK_Next_State){
+		case SYRK_Fetch_BC0:
+			cout<<"SYRK_Fetch_BC0"<<endl;
+		break;
+
+		case SYRK_BC2:
+			cout<<"SYRK_BC2"<<endl;
+		break;
+
+		case SYRK_MAC_BC:
+			cout<<"SYRK_MAC_BC"<<endl;
+		break;
+
+		case SYRK_MAC_Flush:
+			cout<<"SYRK_MAC_Flush"<<endl;
+		break;
+
+		case SYRK_End:
+			cout<<"SYRK_End"<<endl;
+		break;
+	}
+
+	cout<<endl;
+
+	return 0;
+}
+
+/*** SYRK KERNEL DUMP STATE MACHINE END ***/
+
+/*** SYRK KERNEL STATE MACHINE BEGIN ***/
+
+int LAPU::SYRK_Kernel(int Global_index, int Rows_A_SYRK){
+
+	SYRK_Current_State = SYRK_Fetch_BC0;
+	Last_Sending = -2;
+	done = false;
+	int SYRK_Counter = 0;
+	int SYRK_Flag = 0;
+	int Row_Counter = 0;
+	int Col_Counter = 0;
+	int repeat = 0;
+
+	while(1){
+		switch(SYRK_Current_State){
+			case SYRK_Fetch_BC0:
+				SYRK_Next_State = SYRK_Fetch_BC0;
+				Kc_Counter_Next=(Kc_Counter_Curr+1);
+				if (Mc_Counter_Curr == 0){
+					if (Kc_Counter_Curr==LAPU_Size){
+						Kc_Counter_Next=1;
+						Mc_Counter_Next=1;
+					}
+				}
+				else{
+					if (Kc_Counter_Curr==LAPU_Size){
+						Kc_Counter_Next=0;
+						Mc_Counter_Next=0;
+						SYRK_Next_State=SYRK_BC2;
+					}
+				}
+				break;
+
+			case SYRK_BC2:
+				SYRK_Next_State = SYRK_MAC_BC;
+				Kc_Counter_Next=0;
+				Mc_Counter_Next=0;
+			break;
+
+			case SYRK_MAC_BC:
+				SYRK_Next_State = SYRK_MAC_BC;
+				Kc_Counter_Next=(Kc_Counter_Curr+1) % (Kernel_Size+1);
+				if (Kc_Counter_Curr== Kernel_Size){
+					if (SYRK_Flag == 0){
+						if (SYRK_Counter == (16/LAPU_Size) - 1){
+							SYRK_Next_State = SYRK_MAC_Flush;
+						}
+						else{
+							SYRK_Flag = 1;
+							SYRK_Counter++;
+							Row_Counter = SYRK_Counter;
+							Col_Counter = 0;
+							Kc_Counter_Next = 0;
+						}
+					}
+					else{
+						Row_Counter++;
+						Col_Counter++;
+					}
+					if (Row_Counter == Rows_A_SYRK/LAPU_Size){
+						SYRK_Flag = 0;
+						Kc_Counter_Next = 0;
+					}
+				}
+			break;
+
+			case SYRK_MAC_Flush:
+				Latency_Counter_Next=Latency_Counter_Curr+1;
+				if (Latency_Counter_Curr < (FMA_Latency-3))
+					SYRK_Next_State = SYRK_MAC_Flush;
+				else{
+					SYRK_Next_State = SYRK_End;
+					Latency_Counter_Next=0;
+				}
+			break;
+
+			case SYRK_End:
+				if (Last_Sending==2*LAPU_Size){
+					done =true;
+				}
+				Last_Sending++;
+				Kc_Counter_Curr = 0;
+				Kc_Counter_Next = 0;
+				Mc_Counter_Curr = 0;
+				Mc_Counter_Next = 0;
+			break;
+		}
+
+		//Print state machine
+		
+		if (Print_State_Machines == 1){
+			cout<<"==============================";
+			cout<<"Cycle"<<Cycles_Passed<<endl;
+			Dump_SYRK_SMachine();
+		}
+		
+
+		//Pass state info to PEs for execution
+		for (i=0;i<Size;i++){
+			for (j=0;j<Size;j++){
+				PE_Array[i][j].Execute_SYRK(Global_index, Rows_A_SYRK, Kc_Counter_Curr, Mc_Counter_Curr, Row_Counter, SYRK_Counter, SYRK_Flag, SYRK_Current_State, Latency_Counter_Curr);
+			}
+		}
+
+		//IO
+		Mem_IF->IO_Execute_SYRK(Global_index, Rows_A_SYRK, Kc_Counter_Curr, Mc_Counter_Curr, Row_Counter, Col_Counter, SYRK_Counter, SYRK_Flag, SYRK_Current_State);
+
+		//Reset
+		if (((SYRK_Current_State==SYRK_End) && done)){
+			SYRK_Current_State = SYRK_Fetch_BC0;
+			SYRK_Next_State = SYRK_Fetch_BC0;
+			return Cycles_Passed;
+		}
+
+		Dump_Row_Buses();
+		Dump_Column_Buses();
+		Drive_Buses();
+		Cycle();
+	}
+
+	return 0;
+
+}
+
+/*** SYRK KERNEL STATE MACHINE END ***/

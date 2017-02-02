@@ -25,6 +25,8 @@ public:
 
 	int Matmul_Kernel(int Global_index);
 
+	int SYRK_Kernel(int Global_index, int Rows_A_SYRK);
+
 	int Cycle();
 	int Return_Cycle_Count();
 	int Return_LAPU_Power();
@@ -39,7 +41,8 @@ public:
 
 	int Flush_Mem(double **& Input_matrix, int row_number, int column_number, int offset); //TODO who makes decision about the offset/?
 
-	int Initialize_Mem_New( double ** Input_matrix, int row_number, int column_number, int offset, char matr);
+	int Initialize_Mem_New_RowMaj( double ** Input_matrix, int row_number, int column_number, int offset, char matr);
+	int Initialize_Mem_New_ColMaj( double ** Input_matrix, int row_number, int column_number, int offset, char matr);
 
 	int Flush_Mem_New(double **& Input_matrix, int row_number, int column_number, int offset, char matr); //TODO who makes decision about the offset/?
 	
@@ -60,6 +63,8 @@ public:
 
 	int Dump_Matmul_SMachine();
 
+	int Dump_SYRK_SMachine();
+
 	int Dump_Sqrt_Unit();
 
 
@@ -71,6 +76,7 @@ private:
 
 
 	enum Matmul_States { Matmul_Init, Matmul_FetchB, Matmul_FetchA, Matmul_BC0, Matmul_BC, Matmul_MAC_BC, Matmul_MAC_Flush, Matmul_End} Matmul_Current_State, Matmul_Next_State;
+	enum SYRK_States { SYRK_Fetch_BC0, SYRK_BC2, SYRK_MAC_BC, SYRK_MAC_Flush, SYRK_End} SYRK_Current_State, SYRK_Next_State;
 
 
 

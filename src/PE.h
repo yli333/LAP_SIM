@@ -31,6 +31,8 @@ public:
 
 	int Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ma,  int LAPU_Current_State, int Latency_Counter);
 
+	int Execute_SYRK (int Global_Index, int Rows_A_SYRK, int Kc, int Mc, int Row_Counter, int SYRK_Counter, int SYRK_Flag, int SYRK_Current_State, int Latency_Counter);
+
 
 	int Cycle();
 	int Gen_Address (int Global_Iteration, int LAPU_itration);
@@ -40,7 +42,8 @@ public:
 	int Flush_Local_Mem( double **& Input_matrix, int row_number, int column_number, int offset);
 	//TODO who keeps the offset or calculates it ? simulator (mem)
 
-	int Initialize_Local_Mem_New( double ** Input_matrix, int row_number, int column_number, int offset, char matr);
+	int Initialize_Local_Mem_New_RowMaj( double ** Input_matrix, int row_number, int column_number, int offset, char matr);
+	int Initialize_Local_Mem_New_ColMaj( double ** Input_matrix, int row_number, int column_number, int offset, char matr);
 
 	int Flush_Local_Mem_New( double **& Input_matrix, int row_number, int column_number, int offset, char matr);
 
@@ -92,6 +95,7 @@ private:
 	
   int Address_B_New;
 	int Address_A_New;
+	int Address_A_Tmp;
 	int Address_WB_New;
 	int Address_WA_New;
 

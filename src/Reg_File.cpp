@@ -47,7 +47,7 @@ double Reg_File::Reg_Read_New(int address, char mem){
     return Registers_B[address];
   }
 
-  cout<< "invalid address"<<endl;
+  //cout<< "invalid address"<<endl;
   return 0;// TODO
 }
 
@@ -63,7 +63,7 @@ int Reg_File::Reg_Write_New(int address, double data, char mem){
     Registers_B[address]=data;
   }
 
-  cout<< "invalid address"<<endl;
+  //cout<< "invalid address"<<endl;
   return 0;
 }
 
@@ -93,9 +93,32 @@ int Reg_File::Initialize_Register_File (int row, int column, double ** A, int ro
 	return 0;
 }
 
-int Reg_File::Initialize_Register_File_New (int row, int column, double ** A, int row_number, int column_number, int offset, char matr){
+int Reg_File::Initialize_Register_File_New_RowMaj (int row, int column, double ** A, int row_number, int column_number, int offset, char matr){
 
-	// Storing the matrix in the Register file column order
+	/* STORED IN ROW ORDER */
+
+	 int i, j;
+	 int l=offset;
+	// instead of using the constructor I intialize my_row and my_column here.
+	my_row=row;
+	my_column=column;
+
+  if(matr=='A'){
+
+  	for (i= my_row; i< row_number; i=i+LAPU_Size)
+	  	for (j=my_column; j< column_number; j=j+LAPU_Size){
+		  	Registers_A[l]=A[i][j];
+			  l++;
+			  if (l>Mem_Size_A) cout << "Error: Memory overload"<<endl;
+		  }
+
+    }
+  return 0;
+}
+
+int Reg_File::Initialize_Register_File_New_ColMaj (int row, int column, double ** A, int row_number, int column_number, int offset, char matr){
+
+	/* STORED IN COLUMN ORDER */
 
 	 int i, j;
 	 int l=offset;
@@ -109,7 +132,7 @@ int Reg_File::Initialize_Register_File_New (int row, int column, double ** A, in
 	  	for (i=my_row; i< row_number; i=i+LAPU_Size){
 		  	Registers_A[l]=A[i][j];
 			  l++;
-			  if (l>Mem_Size_A) cout << "Erorr: Memory overload"<<endl;
+			  if (l>Mem_Size_A) cout << "Error: Memory overload"<<endl;
 		  }
 
     }

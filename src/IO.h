@@ -22,6 +22,8 @@ public:
 	int IO_Read_Mem();
 	int IO_Write_Mem();
 
+	int IO_Execute_SYRK (int Global_index, int Rows_A_SYRK, int Kc, int Mc, int Row_Counter, int Col_Counter, int SYRK_Counter, int SYRK_Flag, int SYRK_Current_State);
+
 	int IO_Execute_Matmul (int Global_index, int N, int Mc, int Kc, int Ma, int  Matmul_Current_State, int Latency_Counter_Curr);
 
 	virtual ~IO();

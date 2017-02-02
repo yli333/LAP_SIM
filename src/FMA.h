@@ -27,6 +27,7 @@ public:
 	int Dump_Pipeline( ALU_op operation_type);
 
 	int Cycle();
+	int Reset_Pipeline();
 	int Return_FMA_Power_Consumed();
 
 

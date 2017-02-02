@@ -74,7 +74,21 @@ double FMA::Execute_Add(double A, double B, int add_sub){
 }
 
 
+int FMA::Reset_Pipeline(){
+	int i;
+	for (i=0; i < MAD_Latency; i++){
+		MAD_Pipe_Regs_Next[i] = 0;
+		MAC_Pipe_Regs_Next[i] = 0;
+	}
+	for (i=0; i < Mul_Latency; i++)
+		Mul_Pipe_Regs_Next[i] = 0;
 
+	for (i=0; i < Add_Latency; i++)
+		Add_Pipe_Regs_Next[i] = 0;;
+
+	Accumulator_Next = 0;
+	return 0;
+}
 
 int FMA::Cycle(){
 
@@ -110,6 +124,7 @@ double FMA::Execute_MAC(double A, double B){
 		MAC_Pipe_Regs_Next[0]=A*B+Accumulator_Curr ;
 	}
 */
+	//cout<<Accumulator_Curr<<endl;
 	Accumulator_Next= Accumulator_Curr+A*B;
 	MAC_Pipe_Regs_Next[0]=A*B+Accumulator_Curr;
 	int i;
